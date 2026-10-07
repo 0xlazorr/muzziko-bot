@@ -1,0 +1,16 @@
+[Unit]
+Description=Universal Telegram Music Downloader Bot
+After=network.target
+
+[Service]
+Type=simple
+User=lazorr
+WorkingDirectory=/home/lazorr/music_downloader_bot
+ExecStart=/usr/bin/python3 /home/lazorr/music_downloader_bot/bot.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
