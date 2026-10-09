@@ -383,6 +383,45 @@ async def lyrics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await status_msg.edit_text(msg_text, parse_mode=ParseMode.HTML, reply_markup=download_btn)
 
 
+async def perform_search(update: Update, context: ContextTypes.DEFAULT_TYPE, query: str):
+    """Executes multi-track interactive search"""
+    status_msg = await update.message.reply_text("🔍 <i>Searching music catalog...</i>", parse_mode=ParseMode.HTML)
+
+    tracks = await MusicDownloader.search_async(query, limit=MAX_SEARCH_RESULTS)
+    if not tracks:
+        clean_text = html.escape(query)
+        await status_msg.edit_text(
+            f"❌ No tracks found for <b>{clean_text}</b>. Try checking the spelling or searching by artist name.",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    # Store in session cache
+    search_id = str(int(time.time() * 1000))[-8:]
+    SEARCH_CACHE[search_id] = {
+        "query": query,
+        "tracks": tracks,
+    }
+
+    formatted_text = format_search_text(query, tracks, page=0)
+    keyboard = create_search_keyboard(search_id, page=0, total_items=len(tracks))
+
+    await status_msg.edit_text(formatted_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles /search <song or artist>"""
+    if not context.args:
+        await update.message.reply_text(
+            "💡 <i>Please provide a song name or artist after /search.</i>\n\n"
+            "Example: <code>/search Frank Ocean Swim Good</code>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+    query = " ".join(context.args).strip()
+    await perform_search(update, context, query)
+
+
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processes incoming user text: URLs, lyrics queries, or song searches"""
     text = update.message.text.strip()
@@ -408,34 +447,16 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     # 3. Interactive Multi-Search
-    status_msg = await update.message.reply_text("🔍 <i>Searching music catalog...</i>", parse_mode=ParseMode.HTML)
-
-    tracks = await MusicDownloader.search_async(text, limit=MAX_SEARCH_RESULTS)
-    if not tracks:
-        clean_text = html.escape(text)
-        await status_msg.edit_text(
-            f"❌ No tracks found for <b>{clean_text}</b>. Try checking the spelling or searching by artist name.",
-            parse_mode=ParseMode.HTML
-        )
-        return
-
-    # Store in session cache
-    search_id = str(int(time.time() * 1000))[-8:]
-    SEARCH_CACHE[search_id] = {
-        "query": text,
-        "tracks": tracks,
-    }
-
-    formatted_text = format_search_text(text, tracks, page=0)
-    keyboard = create_search_keyboard(search_id, page=0, total_items=len(tracks))
-
-    await status_msg.edit_text(formatted_text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await perform_search(update, context, text)
 
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles interactive button clicks (song download, pagination, lyrics)"""
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.debug(f"Callback query answer error ignored: {e}")
 
     data = query.data
     chat_id = update.effective_chat.id
@@ -654,7 +675,7 @@ def main():
     app.add_handler(CommandHandler("music", song_command))
     app.add_handler(CommandHandler("dl", song_command))
     app.add_handler(CommandHandler("lyrics", lyrics_command))
-    app.add_handler(CommandHandler("search", handle_text_message))
+    app.add_handler(CommandHandler("search", search_command))
 
     # Text message handler (URLs and text searches)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
@@ -670,7 +691,7 @@ def main():
 
     print("📡 Connecting to Telegram network...")
     app.run_polling(
-        drop_pending_updates=True,
+        drop_pending_updates=False,
         bootstrap_retries=-1,
         timeout=20,
         poll_interval=1.0,
