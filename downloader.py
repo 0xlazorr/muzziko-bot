@@ -118,6 +118,11 @@ class MusicDownloader:
             "quiet": True,
             "no_warnings": True,
             "skip_download": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios", "mweb"]
+                }
+            },
         }
 
         # If query doesn't look like a URL, use ytsearch
@@ -200,6 +205,13 @@ class MusicDownloader:
             "writethumbnail": True,
             "quiet": True,
             "no_warnings": True,
+            "retries": 5,
+            "fragment_retries": 5,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios", "mweb"]
+                }
+            },
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
@@ -213,19 +225,32 @@ class MusicDownloader:
             ydl_opts["progress_hooks"] = [progress_hook]
 
         try:
-            target_url = url_or_id
-            if not (target_url.startswith("http://") or target_url.startswith("https://")):
-                target_url = f"https://www.youtube.com/watch?v={url_or_id}"
+            target_url = url_or_id.strip()
+            if target_url.startswith("ytsearch") or target_url.startswith("http://") or target_url.startswith("https://"):
+                pass
+            elif re.match(r"^[a-zA-Z0-9_-]{11}$", target_url):
+                target_url = f"https://www.youtube.com/watch?v={target_url}"
+            else:
+                target_url = f"ytsearch1:{target_url}"
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(target_url, download=True)
                 if not info:
                     return None
 
-                video_id = info.get("id")
-                raw_title = info.get("title", "Unknown")
-                uploader = info.get("uploader", "") or info.get("channel", "")
-                duration = info.get("duration", 0)
+                # If result is from ytsearch or playlist, extract the first entry
+                if "entries" in info and info["entries"]:
+                    entry = info["entries"][0]
+                else:
+                    entry = info
+
+                if not entry:
+                    return None
+
+                video_id = entry.get("id")
+                raw_title = entry.get("title", "Unknown")
+                uploader = entry.get("uploader", "") or entry.get("channel", "")
+                duration = entry.get("duration", 0)
 
                 # Locate extracted MP3 file
                 mp3_path = DOWNLOAD_DIR / f"{task_id}_{video_id}.mp3"
@@ -243,11 +268,11 @@ class MusicDownloader:
                     title = custom_metadata.get("title") or raw_title
                     artist = custom_metadata.get("artist") or uploader
                     album = custom_metadata.get("album") or ""
-                    thumb_source = custom_metadata.get("image_url") or info.get("thumbnail")
+                    thumb_source = custom_metadata.get("image_url") or entry.get("thumbnail")
                 else:
                     title, artist = clean_title_and_artist(raw_title, uploader)
-                    album = info.get("album", "") or ""
-                    thumb_source = info.get("thumbnail")
+                    album = entry.get("album", "") or ""
+                    thumb_source = entry.get("thumbnail")
 
                 # Prepare thumbnail
                 thumb_path = DOWNLOAD_DIR / f"{task_id}_{video_id}_thumb.jpg"
