@@ -42,6 +42,12 @@ from config import (
 from downloader import MusicDownloader
 from spotify_helper import SpotifyHelper
 from lyrics import LyricsFinder
+from state_machine import (
+    DownloadJobFSM,
+    DownloadJobState,
+    UserInteractionFSM,
+    UserInteractionState,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -49,6 +55,13 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+USER_FSM_MAP: Dict[int, UserInteractionFSM] = {}
+
+def get_user_fsm(user_id: int) -> UserInteractionFSM:
+    if user_id not in USER_FSM_MAP:
+        USER_FSM_MAP[user_id] = UserInteractionFSM(user_id)
+    return USER_FSM_MAP[user_id]
 
 # Bounded session cache for search queries and track metadata
 class SessionCache(OrderedDict):
